@@ -1,0 +1,23 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
+
+export default defineConfig({
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      manifest: {
+        name: 'BlockQuest - 方块冒险打卡',
+        short_name: 'BlockQuest',
+        description: '完成每日小任务，收集绿宝石，升级成长！',
+        theme_color: '#57b9e9',
+        background_color: '#d8f2ff',
+        display: 'standalone',
+        orientation: 'landscape',
+        lang: 'zh-CN',
+        icons: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
+      },
+    }),
+  ],
+})

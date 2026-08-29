@@ -1,0 +1,1 @@
+{"name":"BlockQuest - 方块冒险打卡","short_name":"BlockQuest","description":"完成每日小任务，收集绿宝石，升级成长！","start_url":"/","display":"standalone","background_color":"#d8f2ff","theme_color":"#57b9e9","lang":"zh-CN","scope":"/","orientation":"landscape","icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
