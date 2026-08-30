@@ -2,7 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  base: mode === 'github' ? '/blockquest1/' : '/',
   plugins: [
     react(),
     VitePWA({
@@ -14,10 +15,11 @@ export default defineConfig({
         theme_color: '#57b9e9',
         background_color: '#d8f2ff',
         display: 'standalone',
+        start_url: '.',
         orientation: 'landscape',
         lang: 'zh-CN',
         icons: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
       },
     }),
   ],
-})
+}))
