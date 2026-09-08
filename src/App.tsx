@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { sortTasksByTime } from './lib/taskOrder'
 import {
   completeTask, GameState, loadState, redeemReward, resetToDefaults, Reward, saveState, skipTask,
   Task, todayKey, updatePin, updateRewards, updateTasks,
@@ -19,6 +20,7 @@ export default function App() {
   useEffect(() => { saveState(state) }, [state])
   useEffect(() => { if (!toast) return; const id = window.setTimeout(() => setToast(''), 2600); return () => clearTimeout(id) }, [toast])
 
+  const displayState = useMemo(() => ({ ...state, tasks: sortTasksByTime(state.tasks) }), [state])
   const record = state.days[date]?.tasks ?? {}
   const completed = state.tasks.filter((task) => record[task.id] === 'completed').length
   const progress = state.tasks.length ? Math.round((completed / state.tasks.length) * 100) : 0
@@ -42,7 +44,7 @@ export default function App() {
       </div>
     </header>
 
-    {page === 'today' && <Today state={state} record={record} completed={completed} progress={progress} xpIntoLevel={xpIntoLevel}
+    {page === 'today' && <Today state={displayState} record={record} completed={completed} progress={progress} xpIntoLevel={xpIntoLevel}
       onComplete={(id) => act(completeTask(state, id, date), '叮！获得了冒险奖励！')}
       onSkip={(id) => act(skipTask(state, id, date), '任务已暂时跳过。明天再挑战！')} />}
     {page === 'rewards' && <Rewards state={state} onRedeem={(id) => {
@@ -51,7 +53,7 @@ export default function App() {
     }} />}
     {page === 'parent' && (!unlocked ? <PinGate pin={pin} setPin={setPin} onUnlock={() => {
       if (pin === state.settings.pin) { setUnlocked(true); setToast('家长模式已开启') } else { setPin(''); setToast('PIN 不正确，请再试一次') }
-    }} /> : <ParentPanel state={state} onChange={act} onLock={() => { setUnlocked(false); setPage('today') }} />)}
+    }} /> : <ParentPanel state={displayState} onChange={act} onLock={() => { setUnlocked(false); setPage('today') }} />)}
 
     <nav className="nav-dock" aria-label="主要导航">
       <NavButton active={page === 'today'} icon="⛏️" label="今日冒险" onClick={() => setPage('today')} />
@@ -83,7 +85,7 @@ function Today({ state, record, completed, progress, xpIntoLevel, onComplete, on
       <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>
       <div className="xp-row"><span>成长经验</span><b>{xpIntoLevel}/100 XP</b></div>
       <div className="task-grid">
-        {state.tasks.map((task, index) => <QuestCard key={task.id} task={task} icon={taskIcons[index % taskIcons.length]} status={record[task.id]} onComplete={onComplete} onSkip={onSkip} />)}
+        {state.tasks.map((task) => <QuestCard key={task.id} task={task} icon={taskIcons[['wake-up', 'breakfast', 'homework', 'reading', 'exercise', 'bedtime'].indexOf(task.id)] ?? '📋'} status={record[task.id]} onComplete={onComplete} onSkip={onSkip} />)}
         {state.tasks.length === 0 && <div className="empty-card">还没有任务，去家长基地添加一个新冒险吧！</div>}
       </div>
     </section>

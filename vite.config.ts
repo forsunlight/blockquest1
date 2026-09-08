@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => ({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      includeAssets: ['apple-touch-icon.png', 'icon-192.png', 'icon-512.png'],
       manifest: {
         name: 'BlockQuest - 方块冒险打卡',
         short_name: 'BlockQuest',
@@ -18,7 +19,10 @@ export default defineConfig(({ mode }) => ({
         start_url: '.',
         orientation: 'landscape',
         lang: 'zh-CN',
-        icons: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
+        icons: [
+          { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+        ],
       },
     }),
   ],
