@@ -1,32 +1,47 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { sortTasksByTime } from './lib/taskOrder'
+import { Calendar } from './components/Calendar'
+import { useToday } from './hooks/useToday'
+import { dateLabel } from './lib/calendar'
 import {
   completeTask, GameState, loadState, redeemReward, resetToDefaults, Reward, saveState, skipTask,
-  Task, todayKey, updatePin, updateRewards, updateTasks,
+  Task, todayKey, updatePin, updateRewards, updateTasks, ensureDay, getStreak,
 } from './lib/gameState'
 
-type Page = 'today' | 'rewards' | 'parent'
-const date = todayKey()
+type Page = 'today' | 'calendar' | 'rewards' | 'parent'
 const uid = () => `custom-${Date.now()}-${Math.random().toString(16).slice(2)}`
 const taskIcons = ['☀️', '🥞', '📚', '📖', '⚽', '🌙']
 
 export default function App() {
-  const [state, setState] = useState<GameState>(() => loadState())
+  const [state, setState] = useState<GameState>(() => ensureDay(loadState()))
+  const date = useToday()
   const [page, setPage] = useState<Page>('today')
   const [toast, setToast] = useState('')
   const [unlocked, setUnlocked] = useState(false)
   const [pin, setPin] = useState('')
 
+  useEffect(() => { setState(previous => ensureDay(previous, date)) }, [date])
   useEffect(() => { saveState(state) }, [state])
   useEffect(() => { if (!toast) return; const id = window.setTimeout(() => setToast(''), 2600); return () => clearTimeout(id) }, [toast])
 
-  const displayState = useMemo(() => ({ ...state, tasks: sortTasksByTime(state.tasks) }), [state])
+  const streak = getStreak(state, date)
+  const displayState = useMemo(() => ({ ...state, tasks: sortTasksByTime(state.tasks), profile: { ...state.profile, streak } }), [state, streak])
   const record = state.days[date]?.tasks ?? {}
   const completed = state.tasks.filter((task) => record[task.id] === 'completed').length
   const progress = state.tasks.length ? Math.round((completed / state.tasks.length) * 100) : 0
   const level = Math.floor(state.profile.xp / 100) + 1
   const xpIntoLevel = state.profile.xp % 100
   const act = (next: GameState, message?: string) => { setState(next); if (message) setToast(message) }
+  const markTask = (id: string, skip = false) => {
+    const now = todayKey()
+    if (now !== date) {
+      setState(previous => ensureDay(previous, now))
+      setToast('新的一天开始了，请在今天的任务板上打卡。')
+      return
+    }
+    setState(previous => (skip ? skipTask : completeTask)(ensureDay(previous, now), id, now))
+    setToast(skip ? '任务已暂时跳过。明天再挑战！' : '叮！获得了冒险奖励！')
+  }
 
   const parentOpen = () => {
     if (unlocked) setPage('parent')
@@ -40,15 +55,15 @@ export default function App() {
       <div className="stats">
         <Stat icon="⚔️" value={`Lv.${level}`} label="勇者等级" />
         <Stat icon="💚" value={state.profile.emeralds} label="绿宝石" emerald />
-        <Stat icon="🔥" value={state.profile.streak} label="连续天数" />
+        <Stat icon="🔥" value={streak} label="连续天数" />
       </div>
     </header>
 
-    {page === 'today' && <Today state={displayState} record={record} completed={completed} progress={progress} xpIntoLevel={xpIntoLevel}
-      onComplete={(id) => act(completeTask(state, id, date), '叮！获得了冒险奖励！')}
-      onSkip={(id) => act(skipTask(state, id, date), '任务已暂时跳过。明天再挑战！')} />}
+    {page === 'today' && <Today date={date} state={displayState} record={record} completed={completed} progress={progress} xpIntoLevel={xpIntoLevel}
+      onComplete={(id) => markTask(id)} onSkip={(id) => markTask(id, true)} />}
+    {page === 'calendar' && <Calendar state={state} today={date} onToday={() => setPage('today')} />}
     {page === 'rewards' && <Rewards state={state} onRedeem={(id) => {
-      const before = state.profile.emeralds; const next = redeemReward(state, id, date)
+      const before = state.profile.emeralds; const next = redeemReward(state, id, todayKey())
       act(next, next.profile.emeralds === before ? '绿宝石还不够，继续完成任务吧！' : '宝箱已打开！记得告诉爸爸妈妈。')
     }} />}
     {page === 'parent' && (!unlocked ? <PinGate pin={pin} setPin={setPin} onUnlock={() => {
@@ -57,6 +72,7 @@ export default function App() {
 
     <nav className="nav-dock" aria-label="主要导航">
       <NavButton active={page === 'today'} icon="⛏️" label="今日冒险" onClick={() => setPage('today')} />
+      <NavButton active={page === 'calendar'} icon="📅" label="冒险日历" onClick={() => setPage('calendar')} />
       <NavButton active={page === 'rewards'} icon="🎁" label="奖励宝箱" onClick={() => setPage('rewards')} />
       <NavButton active={page === 'parent'} icon="⚙️" label="家长基地" onClick={parentOpen} />
     </nav>
@@ -71,7 +87,8 @@ function NavButton({ active, icon, label, onClick }: { active: boolean; icon: st
   return <button className={`nav-button ${active ? 'active' : ''}`} onClick={onClick}><span>{icon}</span>{label}</button>
 }
 
-function Today({ state, record, completed, progress, xpIntoLevel, onComplete, onSkip }: {
+function Today({ date, state, record, completed, progress, xpIntoLevel, onComplete, onSkip }: {
+  date: string;
   state: GameState; record: Record<string, string>; completed: number; progress: number; xpIntoLevel: number; onComplete: (id: string) => void; onSkip: (id: string) => void
 }) {
   return <section className="page today-page">
@@ -81,7 +98,7 @@ function Today({ state, record, completed, progress, xpIntoLevel, onComplete, on
       <div className="adventure-map"><div className="mountain" /><div className="path"><i /><i /><i /></div><div className="chest">▣</div><div className="tree tree-one" /><div className="tree tree-two" /></div>
     </aside>
     <section className="quest-area">
-      <div className="section-head"><div><p>今日任务 · {new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date())}</p><h2>冒险任务板</h2></div><div className="progress-label">{completed}/{state.tasks.length} 完成</div></div>
+      <div className="section-head"><div><p>今日任务 · {dateLabel(date)}</p><h2>冒险任务板</h2></div><div className="progress-label">{completed}/{state.tasks.length} 完成</div></div>
       <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>
       <div className="xp-row"><span>成长经验</span><b>{xpIntoLevel}/100 XP</b></div>
       <div className="task-grid">
@@ -109,6 +126,7 @@ function PinGate({ pin, setPin, onUnlock }: { pin: string; setPin: (pin: string)
 }
 
 function ParentPanel({ state, onChange, onLock }: { state: GameState; onChange: (next: GameState, message?: string) => void; onLock: () => void }) {
+  const date = todayKey()
   const [taskDraft, setTaskDraft] = useState({ time: '', title: '', emeralds: '1', xp: '10' })
   const [rewardDraft, setRewardDraft] = useState({ title: '', description: '', cost: '10', icon: '🎁' })
   const addTask = (event: FormEvent) => { event.preventDefault(); if (!taskDraft.title.trim()) return; onChange(updateTasks(state, [...state.tasks, { id: uid(), time: taskDraft.time || '任意时间', title: taskDraft.title.trim(), emeralds: Number(taskDraft.emeralds) || 1, xp: Number(taskDraft.xp) || 10 }]), '新任务已加入冒险板'); setTaskDraft({ time: '', title: '', emeralds: '1', xp: '10' }) }

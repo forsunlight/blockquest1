@@ -19,6 +19,8 @@ export type Reward = {
 export type DayRecord = {
   tasks: Record<string, QuestStatus>
   bonusAwarded: boolean
+  taskSnapshot?: Task[]
+  reconstructed?: boolean
 }
 
 export type GameState = {
@@ -49,7 +51,7 @@ const defaultRewards = (): Reward[] => [
   { id: 'gift', title: '一个小礼物', description: '打开一份神秘的小惊喜。', cost: 50, icon: '🎁' },
 ]
 
-const dayRecord = (): DayRecord => ({ tasks: {}, bonusAwarded: false })
+const dayRecord = (tasks: Task[]): DayRecord => ({ tasks: {}, bonusAwarded: false, taskSnapshot: tasks.map(task => ({ ...task })) })
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 
 export function createDefaultState(_date = todayKey()): GameState {
@@ -71,17 +73,44 @@ export function todayKey(date = new Date()): string {
 
 function isDayFinished(state: GameState, date: string): boolean {
   const record = state.days[date]
-  return Boolean(record && state.tasks.length && state.tasks.every((task) => record.tasks[task.id] === 'completed'))
+  if (!record) return false
+  if (record.reconstructed) return record.bonusAwarded
+  const tasks = record.taskSnapshot ?? state.tasks
+  return Boolean(tasks.length && tasks.every((task) => record.tasks[task.id] === 'completed'))
 }
 
-function getStreak(state: GameState, date: string): number {
+export function getStreak(state: GameState, date = todayKey()): number {
   let streak = 0
   const cursor = new Date(`${date}T12:00:00`)
+  if (!isDayFinished(state, date)) cursor.setDate(cursor.getDate() - 1)
   while (isDayFinished(state, todayKey(cursor))) {
     streak += 1
     cursor.setDate(cursor.getDate() - 1)
   }
   return streak
+}
+
+/** Upgrade records in place in the schema, preserving the existing storage key and balances. */
+export function restoreHistory(state: GameState): GameState {
+  const days = Object.fromEntries(Object.entries(state.days).map(([date, record]) => {
+    if (record.taskSnapshot) return [date, record]
+    const known = state.tasks.map(task => ({ ...task }))
+    const removed = Object.keys(record.tasks).filter(id => !known.some(task => task.id === id))
+    return [date, { ...record, reconstructed: true, taskSnapshot: [
+      ...known,
+      ...removed.map(id => ({ id, title: '旧任务（名称未保存）', time: '', emeralds: 0, xp: 0 })),
+    ] }]
+  }))
+  return { ...state, days }
+}
+
+/** Only called for an actual visit/action today, never when browsing history. */
+export function ensureDay(state: GameState, date = todayKey()): GameState {
+  const record = state.days[date]
+  if (record?.taskSnapshot && !record.reconstructed) return state
+  return { ...state, days: { ...state.days, [date]: {
+    ...dayRecord(state.tasks), ...record, taskSnapshot: state.tasks.map(task => ({ ...task })), reconstructed: false,
+  } } }
 }
 
 export function completeTask(state: GameState, taskId: string, date = todayKey()): GameState {
@@ -90,7 +119,8 @@ export function completeTask(state: GameState, taskId: string, date = todayKey()
   if (!task || previous === 'completed') return state
 
   const next = clone(state)
-  const record = next.days[date] ?? dayRecord()
+  const record = next.days[date] ?? dayRecord(next.tasks)
+  record.taskSnapshot ??= next.tasks.map(item => ({ ...item }))
   record.tasks[taskId] = 'completed'
   next.days[date] = record
   next.profile.emeralds += task.emeralds
@@ -107,7 +137,8 @@ export function completeTask(state: GameState, taskId: string, date = todayKey()
 export function skipTask(state: GameState, taskId: string, date = todayKey()): GameState {
   if (!state.tasks.some((task) => task.id === taskId) || state.days[date]?.tasks[taskId] === 'completed') return state
   const next = clone(state)
-  const record = next.days[date] ?? dayRecord()
+  const record = next.days[date] ?? dayRecord(next.tasks)
+  record.taskSnapshot ??= next.tasks.map(item => ({ ...item }))
   record.tasks[taskId] = 'skipped'
   next.days[date] = record
   return next
@@ -132,7 +163,7 @@ export function loadState(): GameState {
     if (!raw) return createDefaultState()
     const parsed = JSON.parse(raw) as GameState
     if (parsed.version !== 1 || !Array.isArray(parsed.tasks) || !Array.isArray(parsed.rewards)) throw new Error('invalid state')
-    return parsed
+    return restoreHistory(parsed)
   } catch {
     return createDefaultState()
   }
@@ -142,8 +173,11 @@ export function saveState(state: GameState): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 }
 
-export function updateTasks(state: GameState, tasks: Task[]): GameState {
-  return { ...state, tasks }
+export function updateTasks(state: GameState, tasks: Task[], date = todayKey()): GameState {
+  const next = ensureDay(state, date)
+  return { ...next, tasks, days: { ...next.days, [date]: {
+    ...next.days[date], taskSnapshot: tasks.map(task => ({ ...task })), reconstructed: false,
+  } } }
 }
 
 export function updateRewards(state: GameState, rewards: Reward[]): GameState {

@@ -1,0 +1,61 @@
+// Run against a local dev server in an isolated browser profile (never user data).
+// PLAYWRIGHT_MODULE may point to a bundled Playwright installation.
+import { createRequire } from 'node:module'
+import assert from 'node:assert/strict'
+const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright')
+const browser = await chromium.launch({ headless: true, channel: process.env.BROWSER_CHANNEL || undefined })
+try {
+  const context = await browser.newContext({ viewport: { width: 1024, height: 768 }, timezoneId: 'Asia/Shanghai' })
+  const page = await context.newPage()
+  const errors = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.clock.install({ time: new Date('2026-09-09T12:00:00+08:00') })
+  await page.goto(process.env.BLOCKQUEST_URL || 'http://localhost:5173/')
+  await page.getByRole('button', { name: '完成', exact: true }).first().click()
+  await page.getByRole('button', { name: '冒险日历', exact: false }).click()
+  await page.getByRole('button', { name: '2026-09-09 1/6', exact: true }).waitFor()
+  await page.reload()
+  await page.getByRole('button', { name: '冒险日历', exact: false }).click()
+  await page.getByRole('button', { name: '2026-09-09 1/6', exact: true }).waitFor()
+
+  await page.getByRole('button', { name: '2026-09-08 无记录', exact: true }).click()
+  await page.getByText('这一天没有保存记录', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '2026-09-10 未开始', exact: true }).click()
+  await page.getByText('新的冒险，还未开始', { exact: true }).waitFor()
+  const selectedState = await page.evaluate(() => JSON.parse(localStorage.getItem('blockquest-state-v1')))
+  assert.equal(selectedState.days['2026-09-08'], undefined)
+  assert.equal(selectedState.days['2026-09-10'], undefined)
+  await page.getByRole('button', { name: '上个月', exact: true }).click()
+  await page.getByRole('heading', { name: '2026年8月', exact: true }).waitFor()
+  await page.getByRole('button', { name: '回到今天', exact: true }).click()
+
+  await page.getByRole('button', { name: '家长基地', exact: false }).click()
+  await page.getByRole('textbox', { name: '四位 PIN' }).fill('1234')
+  await page.getByRole('button', { name: '进入基地', exact: true }).click()
+  await page.getByPlaceholder('任务名称', { exact: true }).fill('整理书桌')
+  await page.getByPlaceholder('时间（例如 18:00）', { exact: true }).fill('08:00')
+  await page.getByRole('button', { name: '添加任务', exact: true }).click()
+  await page.getByRole('button', { name: '冒险日历', exact: false }).click()
+  await page.getByRole('button', { name: '2026-09-09 1/7', exact: true }).waitFor()
+  assert.deepEqual(await page.locator('.history-task h3').allTextContents(), ['起床和洗漱', '吃早餐和准备书包', '整理书桌', '上床睡觉', '完成作业', '阅读20分钟', '运动30分钟'])
+  const before = await page.evaluate(() => JSON.parse(localStorage.getItem('blockquest-state-v1')).days['2026-09-09'])
+  await page.screenshot({ path: '/private/tmp/blockquest-calendar.png', fullPage: true })
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
+
+  await page.clock.fastForward(12 * 60 * 60 * 1000 + 1000)
+  await page.getByRole('button', { name: '2026-09-10 0/7', exact: true }).waitFor()
+  await page.getByRole('button', { name: '家长基地', exact: false }).click()
+  await page.locator('.manage-list > div').filter({ hasText: '起床和洗漱' }).getByRole('button', { name: '删除' }).click()
+  await page.getByRole('button', { name: '冒险日历', exact: false }).click()
+  await page.getByRole('button', { name: '2026-09-09 1/7', exact: true }).click()
+  await page.getByRole('heading', { name: '起床和洗漱', exact: true }).waitFor()
+  const after = await page.evaluate(() => JSON.parse(localStorage.getItem('blockquest-state-v1')).days['2026-09-09'])
+  assert.deepEqual(after, before)
+  assert.equal(await page.getByRole('button', { name: '完成', exact: true }).count(), 0)
+  await page.setViewportSize({ width: 375, height: 812 })
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
+  assert.deepEqual(errors, [])
+  console.log('PASS: calendar selection, persistence, sorting, midnight rollover, historical snapshot, iPad and mobile widths; no page errors.')
+} finally {
+  await browser.close()
+}
